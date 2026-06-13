@@ -1,0 +1,77 @@
+{
+  "actorSpecification": 1,
+  "fields": {
+    "source": { "type": "string", "title": "Source" },
+    "query": { "type": "string", "title": "Query" },
+    "entityId": { "type": "string", "title": "Entity ID" },
+    "companyName": { "type": "string", "title": "Company" },
+    "status": { "type": "string", "title": "Status" },
+    "entityType": { "type": "string", "title": "Type" },
+    "jurisdiction": { "type": "string", "title": "Jurisdiction" },
+    "incorporationDate": { "type": "string", "title": "Incorporated" },
+    "sicCodes": { "type": "array", "title": "SIC Codes" },
+    "registeredAddress": { "type": "object", "title": "Registered Address" },
+    "tickers": { "type": "array", "title": "Tickers" },
+    "exchanges": { "type": "array", "title": "Exchanges" },
+    "stateOfIncorporation": { "type": "string", "title": "State" },
+    "accountsNextDue": { "type": "string", "title": "Accounts Next Due" },
+    "accountsLastMadeUpTo": { "type": "string", "title": "Accounts Last Made Up To" },
+    "confirmationStatementNextDue": { "type": "string", "title": "Confirmation Next Due" },
+    "confirmationStatementLastMadeUpTo": { "type": "string", "title": "Confirmation Last Made Up To" },
+    "dissolutionDate": { "type": "string", "title": "Dissolved" },
+    "fiscalYearEnd": { "type": "string", "title": "Fiscal Year End" },
+    "lastFilingDate": { "type": "string", "title": "Last Filing" },
+    "recentFilings": { "type": "array", "title": "Recent Filings" },
+    "sourceUrl": { "type": "string", "title": "Source URL" },
+    "attribution": { "type": "string", "title": "Attribution" },
+    "scrapedAt": { "type": "string", "title": "Scraped At" }
+  },
+  "views": {
+    "companies": {
+      "title": "Companies",
+      "transformation": {
+        "fields": [
+          "source",
+          "query",
+          "entityId",
+          "companyName",
+          "status",
+          "entityType",
+          "jurisdiction",
+          "incorporationDate",
+          "sicCodes",
+          "tickers",
+          "exchanges",
+          "stateOfIncorporation",
+          "accountsNextDue",
+          "lastFilingDate",
+          "recentFilings",
+          "sourceUrl",
+          "scrapedAt"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "source": { "label": "Source" },
+          "query": { "label": "Query" },
+          "entityId": { "label": "Entity ID" },
+          "companyName": { "label": "Company" },
+          "status": { "label": "Status" },
+          "entityType": { "label": "Type" },
+          "jurisdiction": { "label": "Jurisdiction" },
+          "incorporationDate": { "label": "Incorporated" },
+          "sicCodes": { "label": "SIC Codes" },
+          "tickers": { "label": "Tickers" },
+          "exchanges": { "label": "Exchanges" },
+          "stateOfIncorporation": { "label": "State" },
+          "accountsNextDue": { "label": "Accounts Next Due" },
+          "lastFilingDate": { "label": "Last Filing" },
+          "recentFilings": { "label": "Recent Filings" },
+          "sourceUrl": { "label": "Source URL" },
+          "scrapedAt": { "label": "Scraped At" }
+        }
+      }
+    }
+  }
+}

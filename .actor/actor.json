@@ -1,0 +1,33 @@
+{
+  "actorSpecification": 1,
+  "name": "company-registry-filings-aggregator",
+  "title": "Company Registry & Filings Aggregator",
+  "description": "Aggregate official company registry and SEC filing data from public APIs. Entity-level company facts only, with no officer, director, or personal-data fields.",
+  "version": "1.0",
+  "dockerfile": "Dockerfile",
+  "input": "../INPUT_SCHEMA.json",
+  "readme": "../README.md",
+  "categories": ["OTHER", "AUTOMATION"],
+  "pricingInfo": {
+    "pricingModel": "PAY_PER_EVENT",
+    "pricingPerEvent": {
+      "actorChargeEvents": {
+        "company-record-scraped": {
+          "eventTitle": "Company record scraped",
+          "eventDescription": "Charged once for each clean official company or filing record saved to the dataset.",
+          "eventPriceUsd": 0.004,
+          "isPrimaryEvent": true,
+          "isOneTimeEvent": false
+        }
+      }
+    }
+  },
+  "storages": {
+    "dataset": "./dataset_schema.json"
+  },
+  "defaultRunOptions": {
+    "build": "latest",
+    "memoryMbytes": 1024,
+    "timeoutSecs": 14400
+  }
+}

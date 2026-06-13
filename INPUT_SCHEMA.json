@@ -1,0 +1,87 @@
+{
+  "title": "Company Registry & Filings Aggregator input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "sources": {
+      "title": "Sources",
+      "type": "array",
+      "description": "Official APIs to query. Companies House requires an API key; SEC EDGAR works without a key.",
+      "editor": "select",
+      "default": ["sec_edgar"],
+      "items": {
+        "type": "string",
+        "enum": ["companies_house", "sec_edgar"],
+        "enumTitles": ["UK Companies House", "US SEC EDGAR"]
+      },
+      "uniqueItems": true
+    },
+    "query": {
+      "title": "Search query",
+      "type": "string",
+      "description": "Company name, ticker, or broad search term.",
+      "editor": "textfield",
+      "default": "Microsoft"
+    },
+    "companyNames": {
+      "title": "Company names",
+      "type": "array",
+      "description": "Optional list of company names or tickers to search.",
+      "editor": "stringList",
+      "items": {
+        "type": "string"
+      }
+    },
+    "companyNumbers": {
+      "title": "Companies House numbers",
+      "type": "array",
+      "description": "Optional direct UK Companies House company numbers.",
+      "editor": "stringList",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ciks": {
+      "title": "SEC CIKs",
+      "type": "array",
+      "description": "Optional direct SEC CIK identifiers.",
+      "editor": "stringList",
+      "items": {
+        "type": "string"
+      }
+    },
+    "maxResults": {
+      "title": "Maximum records",
+      "type": "integer",
+      "description": "Maximum clean company/entity records to save.",
+      "editor": "number",
+      "default": 10,
+      "minimum": 1,
+      "maximum": 1000
+    },
+    "companiesHouseApiKey": {
+      "title": "Companies House API key",
+      "type": "string",
+      "description": "Free Companies House API key. Required only when UK Companies House is selected. You may also set COMPANIES_HOUSE_API_KEY.",
+      "editor": "textfield",
+      "isSecret": true
+    },
+    "secUserAgent": {
+      "title": "SEC User-Agent",
+      "type": "string",
+      "description": "SEC requires a descriptive User-Agent. Replace contact@example.com with your contact email for production use.",
+      "editor": "textfield",
+      "default": "CompanyRegistryFilingsAggregator/1.0 contact@example.com"
+    },
+    "proxyConfiguration": {
+      "title": "Proxy configuration",
+      "type": "object",
+      "description": "Not required for official JSON APIs, included for Apify compatibility.",
+      "editor": "proxy",
+      "default": {
+        "useApifyProxy": false
+      }
+    }
+  },
+  "required": []
+}
