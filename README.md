@@ -101,7 +101,7 @@ This Actor uses pay per event pricing.
 | --- | --- | --- |
 | `company-record-scraped` | Each clean company/entity record saved to the dataset | `$0.004` |
 
-The Actor charges only after a record is written to the dataset. It does not charge for empty searches or failed records.
+Each unique company record is saved and charged atomically. Empty searches and failed records are not billed, and later sources stop when the user's spending limit is reached.
 
 ## Attribution
 

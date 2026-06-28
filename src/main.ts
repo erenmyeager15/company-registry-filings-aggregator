@@ -21,7 +21,7 @@ function normalizeInput(rawInput: ActorInput | null): NormalizedInput {
     queries,
     companyNumbers: uniqueStrings(rawInput?.companyNumbers ?? []).map((value) => value.replace(/\s+/g, '').toUpperCase()),
     ciks: uniqueStrings(rawInput?.ciks ?? []).map((value) => value.replace(/\D/g, '').padStart(10, '0')),
-    maxResults: Math.min(Math.max(rawInput?.maxResults ?? 50, 1), 1000),
+    maxResults: Math.min(Math.max(rawInput?.maxResults ?? 10, 1), 1000),
     companiesHouseApiKey: normalizeText(rawInput?.companiesHouseApiKey) ?? normalizeText(process.env.COMPANIES_HOUSE_API_KEY),
     secUserAgent: normalizeText(rawInput?.secUserAgent) ?? normalizeText(process.env.SEC_USER_AGENT) ?? DEFAULT_SEC_USER_AGENT,
   };
@@ -55,7 +55,16 @@ async function collectCompaniesHouse(input: NormalizedInput, remaining: () => nu
   for (const companyNumber of input.companyNumbers) candidates.set(companyNumber, null);
   for (const query of input.queries) {
     if (remaining() - records.length <= 0) break;
-    const numbers = await searchCompaniesHouse(query, input.companiesHouseApiKey, input.maxResults);
+    let numbers: string[] = [];
+    try {
+      numbers = await searchCompaniesHouse(query, input.companiesHouseApiKey, input.maxResults);
+    } catch (error) {
+      log.warning('Skipping Companies House search query after request failure', {
+        query,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
     for (const number of numbers) {
       if (!candidates.has(number)) candidates.set(number, query);
     }
@@ -63,7 +72,16 @@ async function collectCompaniesHouse(input: NormalizedInput, remaining: () => nu
 
   for (const [companyNumber, query] of candidates) {
     if (records.length >= remaining()) break;
-    const record = await getCompaniesHouseRecord(companyNumber, query, input.companiesHouseApiKey);
+    let record: CompanyRecord | null = null;
+    try {
+      record = await getCompaniesHouseRecord(companyNumber, query, input.companiesHouseApiKey);
+    } catch (error) {
+      log.warning('Skipping Companies House company after request failure', {
+        companyNumber,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
     if (record && matchesQuery(record, query)) records.push(record);
   }
 
@@ -76,7 +94,16 @@ async function collectSec(input: NormalizedInput, remaining: () => number): Prom
   for (const cik of input.ciks) candidates.set(cik, null);
   for (const query of input.queries) {
     if (remaining() - records.length <= 0) break;
-    const ciks = await searchSecCiks(query, input.secUserAgent, input.maxResults);
+    let ciks: string[] = [];
+    try {
+      ciks = await searchSecCiks(query, input.secUserAgent, input.maxResults);
+    } catch (error) {
+      log.warning('Skipping SEC EDGAR search query after request failure', {
+        query,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
     for (const cik of ciks) {
       if (!candidates.has(cik)) candidates.set(cik, query);
     }
@@ -84,7 +111,16 @@ async function collectSec(input: NormalizedInput, remaining: () => number): Prom
 
   for (const [cik, query] of candidates) {
     if (records.length >= remaining()) break;
-    const record = await getSecRecord(cik, query, input.secUserAgent);
+    let record: CompanyRecord | null = null;
+    try {
+      record = await getSecRecord(cik, query, input.secUserAgent);
+    } catch (error) {
+      log.warning('Skipping SEC EDGAR company after request failure', {
+        cik,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
     if (record && matchesQuery(record, query)) records.push(record);
   }
 
@@ -97,13 +133,15 @@ async function pushUnique(records: CompanyRecord[], seen: Set<string>, remaining
     if (remaining() <= 0) break;
     const key = `${record.source}:${record.entityId}`;
     if (seen.has(key)) continue;
-    seen.add(key);
 
-    await Actor.pushData(record);
-    const chargeResult = await Actor.charge({ eventName: COMPANY_RECORD_EVENT });
-    saved += 1;
+    const chargeResult = await Actor.pushData(record, COMPANY_RECORD_EVENT);
+    const recordWasSaved = chargeResult.chargedCount > 0 || !chargeResult.eventChargeLimitReached;
+    if (recordWasSaved) {
+      seen.add(key);
+      saved += 1;
+    }
+
     if (chargeResult.eventChargeLimitReached) {
-      log.warning('User event charge limit reached; stopping after last saved record.');
       return { saved, stopped: true };
     }
   }
@@ -136,10 +174,18 @@ try {
     if (remaining() <= 0 || stoppedByChargeLimit) break;
     let records: CompanyRecord[] = [];
 
-    if (source === 'companies_house') {
-      records = await collectCompaniesHouse(input, remaining);
-    } else if (source === 'sec_edgar') {
-      records = await collectSec(input, remaining);
+    try {
+      if (source === 'companies_house') {
+        records = await collectCompaniesHouse(input, remaining);
+      } else if (source === 'sec_edgar') {
+        records = await collectSec(input, remaining);
+      }
+    } catch (error) {
+      log.warning('Skipping company registry source after request failure', {
+        source,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      continue;
     }
 
     const pushResult = await pushUnique(records, seen, remaining);
@@ -147,7 +193,14 @@ try {
     stoppedByChargeLimit = pushResult.stopped;
   }
 
-  log.info('Company registry and filings aggregation finished', { savedCount, stoppedByChargeLimit });
+  if (stoppedByChargeLimit) {
+    const message = `Stopped at the user's spending limit after ${savedCount} company record(s).`;
+    await Actor.setStatusMessage(message);
+    log.warning(message);
+  } else {
+    await Actor.setStatusMessage(`Finished with ${savedCount} unique company record(s).`);
+    log.info('Company registry and filings aggregation finished', { savedCount, stoppedByChargeLimit });
+  }
 } catch (error) {
   log.exception(error as Error, 'Company registry and filings actor failed');
   throw error;
