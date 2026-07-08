@@ -2,7 +2,7 @@
   "actorSpecification": 1,
   "name": "company-registry-filings-aggregator",
   "title": "Company Registry & Filings Aggregator",
-  "description": "Aggregate official company registry and SEC filing data from public APIs. Entity-level company facts only, with no officer, director, or personal-data fields.",
+  "description": "Look up official entity-level company registry and SEC filing data from public APIs. Use for AI company research, due diligence briefs, and firmographic enrichment; returns company identifiers, registry facts, filing metadata, and source URLs. No officer, director, or personal-data fields.",
   "version": "1.0",
   "dockerfile": "Dockerfile",
   "input": "../INPUT_SCHEMA.json",

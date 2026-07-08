@@ -1,12 +1,13 @@
 {
   "title": "Company Registry & Filings Aggregator input",
+  "description": "Look up official entity-level company registry or SEC filing records for AI company research, due diligence briefs, and firmographic enrichment.",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
     "sources": {
       "title": "Sources",
       "type": "array",
-      "description": "Official APIs to query. Companies House requires an API key; SEC EDGAR works without a key.",
+      "description": "Official APIs to query. Use SEC EDGAR for no-key US company and filing lookups. Use UK Companies House only when you provide a Companies House API key.",
       "editor": "select",
       "default": ["sec_edgar"],
       "items": {
@@ -19,14 +20,14 @@
     "query": {
       "title": "Search query",
       "type": "string",
-      "description": "Company name, ticker, or broad search term.",
+      "description": "Company name, ticker, or broad search term. Agents should use a specific company name or ticker when possible.",
       "editor": "textfield",
       "default": "Microsoft"
     },
     "companyNames": {
       "title": "Company names",
       "type": "array",
-      "description": "Optional list of company names or tickers to search.",
+      "description": "Optional list of company names or tickers to search for batch company research.",
       "editor": "stringList",
       "items": {
         "type": "string"
@@ -35,7 +36,7 @@
     "companyNumbers": {
       "title": "Companies House numbers",
       "type": "array",
-      "description": "Optional direct UK Companies House company numbers.",
+      "description": "Optional direct UK Companies House company numbers for precise entity lookup.",
       "editor": "stringList",
       "items": {
         "type": "string"
@@ -44,7 +45,7 @@
     "ciks": {
       "title": "SEC CIKs",
       "type": "array",
-      "description": "Optional direct SEC CIK identifiers.",
+      "description": "Optional direct SEC CIK identifiers for precise SEC entity lookup.",
       "editor": "stringList",
       "items": {
         "type": "string"
@@ -53,7 +54,7 @@
     "maxResults": {
       "title": "Maximum records",
       "type": "integer",
-      "description": "Maximum clean company/entity records to save.",
+      "description": "Maximum clean company/entity records to save. Use 1-10 for agent calls and focused due diligence.",
       "editor": "number",
       "default": 10,
       "minimum": 1,
