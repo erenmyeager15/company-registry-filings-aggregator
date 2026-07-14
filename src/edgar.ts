@@ -1,5 +1,5 @@
-import type { CompanyRecord, RecentFiling, SecSubmissions, SecTickerEntry } from './types.js';
-import { delay, fetchJson, normalizeDate, normalizeText, uniqueStrings } from './utils.js';
+import type { CompanyLookupResult, CompanyRecord, RecentFiling, SecSubmissions, SecTickerEntry } from './types.js';
+import { fetchJson, isHttpStatus, normalizeDate, normalizeText, uniqueStrings } from './utils.js';
 
 const TICKERS_URL = 'https://www.sec.gov/files/company_tickers.json';
 const SUBMISSIONS_BASE = 'https://data.sec.gov/submissions';
@@ -23,35 +23,64 @@ function plainCik(cik: string): string {
 
 function archiveDocumentUrl(cik: string, accessionNumber: string | null, primaryDocument: string | null): string | null {
   if (!accessionNumber || !primaryDocument) return null;
+  const pathParts = primaryDocument.replace(/\\/g, '/').split('/');
+  if (pathParts.some((part) => !part || part === '.' || part === '..')) return null;
   const accessionPath = accessionNumber.replace(/-/g, '');
-  return `${ARCHIVES_BASE}/${plainCik(cik)}/${accessionPath}/${encodeURI(primaryDocument)}`;
+  const documentPath = pathParts.map((part) => encodeURIComponent(part)).join('/');
+  return `${ARCHIVES_BASE}/${plainCik(cik)}/${accessionPath}/${documentPath}`;
 }
 
-async function getTickerMap(userAgent: string): Promise<SecTickerEntry[]> {
-  const data = await fetchJson<Record<string, SecTickerEntry>>(TICKERS_URL, { headers: secHeaders(userAgent) });
-  return Object.values(data);
+export async function loadSecTickerEntries(
+  userAgent: string,
+  request: typeof fetchJson = fetchJson,
+): Promise<SecTickerEntry[]> {
+  const data = await request<Record<string, SecTickerEntry>>(TICKERS_URL, { headers: secHeaders(userAgent) });
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('SEC ticker index returned a malformed response.');
+  }
+  const entries = Object.values(data).filter((entry) => entry && typeof entry === 'object');
+  if (entries.length === 0) throw new Error('SEC ticker index returned no entries.');
+  return entries;
 }
 
-export async function searchSecCiks(query: string, userAgent: string, limit: number): Promise<string[]> {
-  const term = query.toLowerCase();
-  const entries = await getTickerMap(userAgent);
-  return entries
-    .filter((entry) =>
-      normalizeText(entry.title)?.toLowerCase().includes(term)
-      || normalizeText(entry.ticker)?.toLowerCase() === term
-      || normalizeText(entry.ticker)?.toLowerCase().includes(term),
-    )
-    .slice(0, Math.min(Math.max(limit, 1), 100))
-    .map((entry) => padCik(String(entry.cik_str ?? '')))
-    .filter((cik) => cik !== '0000000000');
+function searchableText(value: unknown): string {
+  return (normalizeText(value) ?? '')
+    .toLocaleLowerCase('en-US')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
-async function getSubmissions(cik: string, userAgent: string): Promise<SecSubmissions> {
-  await delay(150);
-  return fetchJson<SecSubmissions>(`${SUBMISSIONS_BASE}/CIK${padCik(cik)}.json`, { headers: secHeaders(userAgent) });
+export function searchSecCiks(entries: SecTickerEntry[], query: string, limit: number): string[] {
+  const term = searchableText(query);
+  if (!term) return [];
+  const termTokens = term.split(' ');
+  const ranked = entries.flatMap((entry) => {
+    const title = searchableText(entry.title);
+    const ticker = searchableText(entry.ticker);
+    const cik = padCik(String(entry.cik_str ?? ''));
+    if (cik === '0000000000') return [];
+    let score: number | null = null;
+    if (ticker === term) score = 0;
+    else if (title === term) score = 1;
+    else if (title.startsWith(`${term} `)) score = 2;
+    else if (termTokens.every((token) => title.includes(token))) score = 3;
+    else if (title.includes(term)) score = 4;
+    else if (ticker.includes(term)) score = 5;
+    return score === null ? [] : [{ cik, score, title, ticker }];
+  }).sort((a, b) => a.score - b.score || a.title.localeCompare(b.title) || a.ticker.localeCompare(b.ticker));
+
+  const ciks: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of ranked) {
+    if (seen.has(entry.cik)) continue;
+    seen.add(entry.cik);
+    ciks.push(entry.cik);
+    if (ciks.length >= Math.min(Math.max(limit, 1), 1000)) break;
+  }
+  return ciks;
 }
 
-function normalizeRecentFilings(submissions: SecSubmissions): RecentFiling[] {
+export function normalizeRecentFilings(submissions: SecSubmissions): RecentFiling[] {
   const recent = submissions.filings?.recent;
   const forms = recent?.form ?? [];
   const dates = recent?.filingDate ?? [];
@@ -74,11 +103,27 @@ function normalizeRecentFilings(submissions: SecSubmissions): RecentFiling[] {
   }, []);
 }
 
-export async function getSecRecord(cik: string, query: string | null, userAgent: string): Promise<CompanyRecord | null> {
-  const submissions = await getSubmissions(cik, userAgent);
+function isCompanyEntity(submissions: SecSubmissions): boolean {
+  const entityType = normalizeText(submissions.entityType)?.toLowerCase();
+  return (
+    entityType === 'operating'
+    || entityType === 'investment'
+    || Number(submissions.insiderTransactionForIssuerExists) === 1
+    || Boolean(normalizeText(submissions.sic))
+    || (submissions.tickers?.length ?? 0) > 0
+    || (submissions.exchanges?.length ?? 0) > 0
+  );
+}
+
+export function normalizeSecRecord(
+  cik: string,
+  query: string | null,
+  submissions: SecSubmissions,
+): CompanyRecord | null {
   const entityId = padCik(String(submissions.cik ?? cik));
   const companyName = normalizeText(submissions.name);
-  if (!companyName || entityId === '0000000000') return null;
+  if (!companyName || entityId === '0000000000') throw new Error('SEC submission is missing entity identity fields.');
+  if (!isCompanyEntity(submissions)) return null;
 
   const sicCodes = uniqueStrings([
     submissions.sic ? `SIC:${submissions.sic}` : null,
@@ -112,4 +157,28 @@ export async function getSecRecord(cik: string, query: string | null, userAgent:
     attribution: ATTRIBUTION,
     scrapedAt: new Date().toISOString(),
   };
+}
+
+export async function getSecRecord(
+  cik: string,
+  query: string | null,
+  userAgent: string,
+  request: typeof fetchJson = fetchJson,
+): Promise<CompanyLookupResult> {
+  try {
+    const submissions = await request<SecSubmissions>(`${SUBMISSIONS_BASE}/CIK${padCik(cik)}.json`, {
+      headers: secHeaders(userAgent),
+    });
+    if (!submissions || typeof submissions !== 'object') {
+      throw new Error('SEC submissions endpoint returned a malformed response.');
+    }
+    const record = normalizeSecRecord(cik, query, submissions);
+    return {
+      record,
+      warnings: record ? [] : [`Skipped CIK ${padCik(cik)} because SEC does not classify it as a company or issuer.`],
+    };
+  } catch (error) {
+    if (isHttpStatus(error, 404)) return { record: null, warnings: [] };
+    throw error;
+  }
 }

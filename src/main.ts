@@ -1,205 +1,183 @@
 import { Actor, log } from 'apify';
+import { allOfficialOperationsFailed, pushUniqueRecords, sourceBudget } from './billing.js';
 import { getCompaniesHouseRecord, searchCompaniesHouse } from './companiesHouse.js';
-import { getSecRecord, searchSecCiks } from './edgar.js';
-import type { ActorInput, CompanyRecord, NormalizedInput, SourceName } from './types.js';
-import { normalizeText, uniqueStrings } from './utils.js';
+import { getSecRecord, loadSecTickerEntries, searchSecCiks } from './edgar.js';
+import { normalizeInput } from './input.js';
+import { recordSafetyIssue } from './recordSafety.js';
+import type {
+  CompanyRecord,
+  NormalizedInput,
+  SourceCollectionResult,
+  SourceName,
+} from './types.js';
 
-const DEFAULT_SOURCES: SourceName[] = ['sec_edgar'];
 const COMPANY_RECORD_EVENT = 'company-record-scraped';
-const DEFAULT_SEC_USER_AGENT = 'CompanyRegistryFilingsAggregator/1.0 contact@example.com';
 
-function normalizeInput(rawInput: ActorInput | null): NormalizedInput {
-  const sources = uniqueStrings(rawInput?.sources ?? DEFAULT_SOURCES)
-    .filter((source): source is SourceName => source === 'companies_house' || source === 'sec_edgar');
-  const queries = uniqueStrings([
-    rawInput?.query,
-    ...(rawInput?.companyNames ?? []),
-  ]);
+function warningMessage(source: SourceName, target: string, error: unknown): string {
+  return `${source}:${target}: ${error instanceof Error ? error.message : String(error)}`;
+}
 
-  return {
-    sources: sources.length ? sources : DEFAULT_SOURCES,
-    queries,
-    companyNumbers: uniqueStrings(rawInput?.companyNumbers ?? []).map((value) => value.replace(/\s+/g, '').toUpperCase()),
-    ciks: uniqueStrings(rawInput?.ciks ?? []).map((value) => value.replace(/\D/g, '').padStart(10, '0')),
-    maxResults: Math.min(Math.max(rawInput?.maxResults ?? 10, 1), 1000),
-    companiesHouseApiKey: normalizeText(rawInput?.companiesHouseApiKey) ?? normalizeText(process.env.COMPANIES_HOUSE_API_KEY),
-    secUserAgent: normalizeText(rawInput?.secUserAgent) ?? normalizeText(process.env.SEC_USER_AGENT) ?? DEFAULT_SEC_USER_AGENT,
+async function collectCompaniesHouse(input: NormalizedInput, limit: number): Promise<SourceCollectionResult> {
+  const apiKey = input.companiesHouseApiKey;
+  if (!apiKey) throw new Error('Companies House API key is missing after input validation.');
+  const records: CompanyRecord[] = [];
+  const warnings: string[] = [];
+  const visited = new Set<string>();
+  let completedOperations = 0;
+  let failedOperations = 0;
+
+  const lookup = async (companyNumber: string, query: string | null): Promise<void> => {
+    if (records.length >= limit || visited.has(companyNumber)) return;
+    visited.add(companyNumber);
+    try {
+      const result = await getCompaniesHouseRecord(companyNumber, query, apiKey);
+      completedOperations += 1;
+      warnings.push(...result.warnings);
+      if (result.record) records.push(result.record);
+    } catch (error) {
+      failedOperations += 1;
+      warnings.push(warningMessage('companies_house', companyNumber, error));
+    }
   };
+
+  for (const companyNumber of input.companyNumbers) {
+    if (records.length >= limit) break;
+    await lookup(companyNumber, null);
+  }
+
+  for (const [queryIndex, query] of input.queries.entries()) {
+    if (records.length >= limit) break;
+    const remainingQueries = input.queries.length - queryIndex;
+    const queryLimit = Math.max(1, Math.ceil((limit - records.length) / remainingQueries));
+    let companyNumbers: string[];
+    try {
+      companyNumbers = await searchCompaniesHouse(query, apiKey, queryLimit);
+      completedOperations += 1;
+    } catch (error) {
+      failedOperations += 1;
+      warnings.push(warningMessage('companies_house', query, error));
+      continue;
+    }
+    for (const companyNumber of companyNumbers) {
+      if (records.length >= limit) break;
+      await lookup(companyNumber, query);
+    }
+  }
+
+  return { records, completedOperations, failedOperations, warnings };
 }
 
-function matchesQuery(record: CompanyRecord, query: string | null): boolean {
-  if (!query) return true;
-  const term = query.toLowerCase();
-  const haystack = [
-    record.entityId,
-    record.companyName,
-    record.status,
-    record.entityType,
-    record.jurisdiction,
-    record.stateOfIncorporation,
-    ...record.sicCodes,
-    ...record.tickers,
-    ...record.exchanges,
-  ].filter(Boolean).join(' ').toLowerCase();
-  return haystack.includes(term);
-}
-
-async function collectCompaniesHouse(input: NormalizedInput, remaining: () => number): Promise<CompanyRecord[]> {
+async function collectSec(input: NormalizedInput, limit: number): Promise<SourceCollectionResult> {
   const records: CompanyRecord[] = [];
-  if (!input.companiesHouseApiKey) {
-    log.warning('Companies House selected but no API key was provided; skipping companies_house.');
-    return records;
-  }
+  const warnings: string[] = [];
+  const visited = new Set<string>();
+  let completedOperations = 0;
+  let failedOperations = 0;
 
-  const candidates = new Map<string, string | null>();
-  for (const companyNumber of input.companyNumbers) candidates.set(companyNumber, null);
-  for (const query of input.queries) {
-    if (remaining() - records.length <= 0) break;
-    let numbers: string[] = [];
+  const lookup = async (cik: string, query: string | null): Promise<void> => {
+    if (records.length >= limit || visited.has(cik)) return;
+    visited.add(cik);
     try {
-      numbers = await searchCompaniesHouse(query, input.companiesHouseApiKey, input.maxResults);
+      const result = await getSecRecord(cik, query, input.secUserAgent);
+      completedOperations += 1;
+      warnings.push(...result.warnings);
+      if (result.record) records.push(result.record);
     } catch (error) {
-      log.warning('Skipping Companies House search query after request failure', {
-        query,
-        reason: error instanceof Error ? error.message : String(error),
-      });
-      continue;
+      failedOperations += 1;
+      warnings.push(warningMessage('sec_edgar', cik, error));
     }
-    for (const number of numbers) {
-      if (!candidates.has(number)) candidates.set(number, query);
-    }
+  };
+
+  for (const cik of input.ciks) {
+    if (records.length >= limit) break;
+    await lookup(cik, null);
   }
 
-  for (const [companyNumber, query] of candidates) {
-    if (records.length >= remaining()) break;
-    let record: CompanyRecord | null = null;
+  if (input.queries.length > 0 && records.length < limit) {
     try {
-      record = await getCompaniesHouseRecord(companyNumber, query, input.companiesHouseApiKey);
+      const entries = await loadSecTickerEntries(input.secUserAgent);
+      completedOperations += 1;
+      for (const [queryIndex, query] of input.queries.entries()) {
+        if (records.length >= limit) break;
+        const remainingQueries = input.queries.length - queryIndex;
+        const queryLimit = Math.max(1, Math.ceil((limit - records.length) / remainingQueries));
+        for (const cik of searchSecCiks(entries, query, queryLimit)) {
+          if (records.length >= limit) break;
+          await lookup(cik, query);
+        }
+      }
     } catch (error) {
-      log.warning('Skipping Companies House company after request failure', {
-        companyNumber,
-        reason: error instanceof Error ? error.message : String(error),
-      });
-      continue;
-    }
-    if (record && matchesQuery(record, query)) records.push(record);
-  }
-
-  return records;
-}
-
-async function collectSec(input: NormalizedInput, remaining: () => number): Promise<CompanyRecord[]> {
-  const records: CompanyRecord[] = [];
-  const candidates = new Map<string, string | null>();
-  for (const cik of input.ciks) candidates.set(cik, null);
-  for (const query of input.queries) {
-    if (remaining() - records.length <= 0) break;
-    let ciks: string[] = [];
-    try {
-      ciks = await searchSecCiks(query, input.secUserAgent, input.maxResults);
-    } catch (error) {
-      log.warning('Skipping SEC EDGAR search query after request failure', {
-        query,
-        reason: error instanceof Error ? error.message : String(error),
-      });
-      continue;
-    }
-    for (const cik of ciks) {
-      if (!candidates.has(cik)) candidates.set(cik, query);
+      failedOperations += 1;
+      warnings.push(warningMessage('sec_edgar', 'ticker-index', error));
     }
   }
 
-  for (const [cik, query] of candidates) {
-    if (records.length >= remaining()) break;
-    let record: CompanyRecord | null = null;
-    try {
-      record = await getSecRecord(cik, query, input.secUserAgent);
-    } catch (error) {
-      log.warning('Skipping SEC EDGAR company after request failure', {
-        cik,
-        reason: error instanceof Error ? error.message : String(error),
-      });
-      continue;
-    }
-    if (record && matchesQuery(record, query)) records.push(record);
-  }
-
-  return records;
-}
-
-async function pushUnique(records: CompanyRecord[], seen: Set<string>, remaining: () => number): Promise<{ saved: number; stopped: boolean }> {
-  let saved = 0;
-  for (const record of records) {
-    if (remaining() <= 0) break;
-    const key = `${record.source}:${record.entityId}`;
-    if (seen.has(key)) continue;
-
-    const chargeResult = await Actor.pushData(record, COMPANY_RECORD_EVENT);
-    const recordWasSaved = chargeResult.chargedCount > 0 || !chargeResult.eventChargeLimitReached;
-    if (recordWasSaved) {
-      seen.add(key);
-      saved += 1;
-    }
-
-    if (chargeResult.eventChargeLimitReached) {
-      return { saved, stopped: true };
-    }
-  }
-
-  return { saved, stopped: false };
+  return { records, completedOperations, failedOperations, warnings };
 }
 
 await Actor.init();
 
 try {
-  const input = normalizeInput(await Actor.getInput<ActorInput>());
+  const input = normalizeInput((await Actor.getInput<unknown>()) ?? {});
   const seen = new Set<string>();
   let savedCount = 0;
+  let warningCount = 0;
+  let completedOperations = 0;
+  let failedOperations = 0;
   let stoppedByChargeLimit = false;
-  const remaining = () => input.maxResults - savedCount;
-
-  if (!input.queries.length && !input.companyNumbers.length && !input.ciks.length) {
-    throw new Error('Provide at least one query, companyNames item, companyNumbers item, or ciks item.');
-  }
 
   log.info('Starting company registry and filings aggregation', {
     sources: input.sources,
-    queries: input.queries,
+    queryCount: input.queries.length,
     companyNumbers: input.companyNumbers.length,
     ciks: input.ciks.length,
     maxResults: input.maxResults,
   });
 
-  for (const source of input.sources) {
-    if (remaining() <= 0 || stoppedByChargeLimit) break;
-    let records: CompanyRecord[] = [];
-
-    try {
-      if (source === 'companies_house') {
-        records = await collectCompaniesHouse(input, remaining);
-      } else if (source === 'sec_edgar') {
-        records = await collectSec(input, remaining);
-      }
-    } catch (error) {
-      log.warning('Skipping company registry source after request failure', {
-        source,
-        reason: error instanceof Error ? error.message : String(error),
-      });
-      continue;
+  for (const [sourceIndex, source] of input.sources.entries()) {
+    if (savedCount >= input.maxResults || stoppedByChargeLimit) break;
+    const remaining = input.maxResults - savedCount;
+    const limit = sourceBudget(remaining, input.sources.length - sourceIndex);
+    const result = source === 'companies_house'
+      ? await collectCompaniesHouse(input, limit)
+      : await collectSec(input, limit);
+    completedOperations += result.completedOperations;
+    failedOperations += result.failedOperations;
+    for (const warning of result.warnings) {
+      warningCount += 1;
+      log.warning(warning);
     }
 
-    const pushResult = await pushUnique(records, seen, remaining);
+    const safeRecords = result.records.filter((record) => {
+      const issue = recordSafetyIssue(record);
+      if (!issue) return true;
+      warningCount += 1;
+      log.warning(`Skipped unsafe ${record.source}:${record.entityId}: ${issue}.`);
+      return false;
+    });
+    const pushResult = await pushUniqueRecords(
+      safeRecords,
+      seen,
+      input.maxResults - savedCount,
+      (record) => Actor.pushData(record, COMPANY_RECORD_EVENT),
+    );
     savedCount += pushResult.saved;
     stoppedByChargeLimit = pushResult.stopped;
   }
 
+  if (!stoppedByChargeLimit && allOfficialOperationsFailed(completedOperations, failedOperations)) {
+    throw new Error(`All ${failedOperations} official API operation(s) failed.`);
+  }
+
   if (stoppedByChargeLimit) {
-    const message = `Stopped at the user's spending limit after ${savedCount} company record(s).`;
+    const message = `Stopped at the user's spending limit after ${savedCount} clean company record(s).`;
     await Actor.setStatusMessage(message);
     log.warning(message);
   } else {
-    await Actor.setStatusMessage(`Finished with ${savedCount} unique company record(s).`);
-    log.info('Company registry and filings aggregation finished', { savedCount, stoppedByChargeLimit });
+    const warningSuffix = warningCount > 0 ? ` with ${warningCount} warning(s)` : '';
+    const message = `Finished with ${savedCount} clean entity record(s)${warningSuffix}.`;
+    await Actor.setStatusMessage(message);
+    log.info(message, { completedOperations, failedOperations });
   }
 } catch (error) {
   log.exception(error as Error, 'Company registry and filings actor failed');

@@ -11,7 +11,7 @@ The default source is **US SEC EDGAR**, which works without an API key. **UK Com
 | US SEC EDGAR | US public companies | No | Company identity, CIK, tickers, exchanges, SIC data, fiscal year end, and recent filings. |
 | UK Companies House | UK registered companies | Yes | Company profile, status, type, jurisdiction, registered office, accounts dates, confirmation statement dates, and filing history. |
 
-This Actor uses official JSON APIs only. It does not use browser scraping, and it does not call Companies House officers or persons-with-significant-control endpoints.
+This Actor uses official read-only JSON APIs only. It does not use browser scraping, and it does not call Companies House officers or persons-with-significant-control endpoints. Direct SEC CIK results are saved only when the SEC response contains company or issuer evidence; individual-only SEC filers are excluded.
 
 ## What It Extracts
 
@@ -77,17 +77,19 @@ UK Companies House lookup with your API key:
 | --- | --- | --- | --- |
 | `sources` | array | `["sec_edgar"]` | Official APIs to query: `sec_edgar`, `companies_house`, or both. |
 | `query` | string | `Microsoft` | Company name, ticker, or broad search term. |
-| `companyNames` | string array | empty | Optional list of company names or tickers to search. |
-| `companyNumbers` | string array | empty | Optional direct UK Companies House company numbers. |
-| `ciks` | string array | empty | Optional direct SEC CIK identifiers. |
+| `companyNames` | string array | empty | Up to 50 company names or tickers to search. Duplicate terms are removed case-insensitively. |
+| `companyNumbers` | string array | empty | Up to 1000 direct UK Companies House company numbers. `companies_house` must be selected. |
+| `ciks` | string array | empty | Up to 1000 direct SEC CIK identifiers. Values are validated and padded to 10 digits. |
 | `maxResults` | integer | `10` | Maximum clean records to save, from 1 to 1000. |
 | `companiesHouseApiKey` | secret string | empty | Free Companies House API key, required only when `companies_house` is selected. |
-| `secUserAgent` | string | `CompanyRegistryFilingsAggregator/1.0 contact@example.com` | SEC requires a descriptive User-Agent. Replace the default contact email for production use. |
+| `secUserAgent` | string | `CompanyRegistryFilingsAggregator/1.0 contact@example.com` | SEC requires an application identity and contact email. Replace the placeholder with a monitored email for production use. Line breaks are rejected. |
 | `proxyConfiguration` | object | no proxy | Not required for official JSON APIs, included for Apify compatibility. |
 
 ## Output Overview
 
 Each dataset item represents one official company/entity record.
+
+Records are deduplicated by `source + entityId` before billing. Source and filing URLs must use the matching official HTTPS host, and nested officer, director, PSC, email, phone, contact, and birth-date fields are blocked before output.
 
 | Field group | Important fields |
 | --- | --- |
@@ -141,9 +143,19 @@ This Actor uses pay per event pricing.
 
 | Event | When charged | Price |
 | --- | --- | --- |
+| `apify-actor-start` | When the Actor starts; one event per GB of memory, minimum one | `$0.00005` |
 | `company-record-scraped` | Each clean company/entity record saved to the dataset | `$0.004` |
 
 Each unique company record is saved and charged atomically. Empty searches and failed records are not billed, and later sources stop when the user's spending limit is reached.
+
+## Reliability And API Limits
+
+- Requests time out after 20 seconds and retry only network failures, `408`, `425`, `429`, and `5xx` responses. Permanent `4xx` errors are not replayed.
+- SEC requests are paced below the official 10 requests-per-second fair-access ceiling, and the ticker/company index is downloaded only once per run.
+- Companies House requests are paced for its default 600 requests per 5 minutes allowance. Company search pagination is capped at 10 pages.
+- When both sources are selected, the result budget reserves capacity for each source and reallocates unused capacity to later sources.
+- A Companies House profile remains usable when only its optional filing-history request fails; the run logs a warning and saves the profile without filings.
+- A successful no-match response finishes with zero records. Partial source failures finish with warnings when another official request succeeds. If every official API operation fails, the run fails clearly instead of presenting a misleading healthy empty dataset.
 
 ## Tips For Better Results
 
@@ -157,14 +169,16 @@ Each unique company record is saved and charged atomically. Empty searches and f
 
 - UK Companies House requires `companiesHouseApiKey` or the `COMPANIES_HOUSE_API_KEY` environment variable.
 - SEC company search uses the SEC ticker/company index, so private companies without SEC records will not appear.
+- SEC direct CIK lookups that represent individual-only filers are intentionally skipped.
 - Recent filings are capped to the latest 10 filing records per company.
 - SEC ownership-oriented forms and Companies House officer/PSC data are intentionally excluded.
+- A Companies House registered office is an official entity field, but some companies use a residential location as that office. Treat address data accordingly.
 
 ## Attribution
 
 Companies House data: Contains public sector information licensed under the Open Government Licence v3.0.
 
-SEC EDGAR data is sourced from public SEC submissions endpoints. Follow SEC fair access rules and provide a descriptive User-Agent.
+SEC EDGAR data is sourced from public SEC submissions endpoints. Follow SEC fair access rules and provide an application name plus a monitored contact email in `secUserAgent`.
 
 ## Responsible Use
 

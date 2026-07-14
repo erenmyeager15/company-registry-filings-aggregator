@@ -67,6 +67,9 @@ export interface CompanyRecord {
 
 export interface CompaniesHouseSearchResponse {
   items?: CompaniesHouseSearchItem[];
+  total_results?: number;
+  start_index?: number;
+  items_per_page?: number;
 }
 
 export interface CompaniesHouseSearchItem {
@@ -127,6 +130,10 @@ export interface SecTickerEntry {
 export interface SecSubmissions {
   cik?: string;
   name?: string;
+  entityType?: string;
+  ownerOrg?: string;
+  insiderTransactionForOwnerExists?: number;
+  insiderTransactionForIssuerExists?: number;
   tickers?: string[];
   exchanges?: string[];
   sic?: string | number;
@@ -141,4 +148,16 @@ export interface SecSubmissions {
       primaryDocument?: string[];
     };
   };
+}
+
+export interface CompanyLookupResult {
+  record: CompanyRecord | null;
+  warnings: string[];
+}
+
+export interface SourceCollectionResult {
+  records: CompanyRecord[];
+  completedOperations: number;
+  failedOperations: number;
+  warnings: string[];
 }

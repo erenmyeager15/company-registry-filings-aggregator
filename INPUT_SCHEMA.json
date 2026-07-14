@@ -10,6 +10,8 @@
       "description": "Official APIs to query. Use SEC EDGAR for no-key US company and filing lookups. Use UK Companies House only when you provide a Companies House API key.",
       "editor": "select",
       "default": ["sec_edgar"],
+      "minItems": 1,
+      "maxItems": 2,
       "items": {
         "type": "string",
         "enum": ["companies_house", "sec_edgar"],
@@ -22,15 +24,19 @@
       "type": "string",
       "description": "Company name, ticker, or broad search term. Agents should use a specific company name or ticker when possible.",
       "editor": "textfield",
-      "default": "Microsoft"
+      "default": "Microsoft",
+      "maxLength": 200
     },
     "companyNames": {
       "title": "Company names",
       "type": "array",
       "description": "Optional list of company names or tickers to search for batch company research.",
       "editor": "stringList",
+      "maxItems": 50,
       "items": {
-        "type": "string"
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
       }
     },
     "companyNumbers": {
@@ -38,8 +44,11 @@
       "type": "array",
       "description": "Optional direct UK Companies House company numbers for precise entity lookup.",
       "editor": "stringList",
+      "maxItems": 1000,
       "items": {
-        "type": "string"
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20
       }
     },
     "ciks": {
@@ -47,8 +56,11 @@
       "type": "array",
       "description": "Optional direct SEC CIK identifiers for precise SEC entity lookup.",
       "editor": "stringList",
+      "maxItems": 1000,
       "items": {
-        "type": "string"
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 10
       }
     },
     "maxResults": {
@@ -70,9 +82,11 @@
     "secUserAgent": {
       "title": "SEC User-Agent",
       "type": "string",
-      "description": "SEC requires a descriptive User-Agent. Replace contact@example.com with your contact email for production use.",
+      "description": "SEC requires an application identity and contact email in User-Agent. Replace contact@example.com with a monitored email for production use.",
       "editor": "textfield",
-      "default": "CompanyRegistryFilingsAggregator/1.0 contact@example.com"
+      "default": "CompanyRegistryFilingsAggregator/1.0 contact@example.com",
+      "minLength": 10,
+      "maxLength": 255
     },
     "proxyConfiguration": {
       "title": "Proxy configuration",

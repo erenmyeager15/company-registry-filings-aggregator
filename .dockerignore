@@ -4,3 +4,4 @@ storage
 .git
 .env
 *.log
+tsconfig.tsbuildinfo

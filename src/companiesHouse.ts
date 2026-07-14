@@ -3,11 +3,19 @@ import type {
   CompaniesHouseFilingHistory,
   CompaniesHouseProfile,
   CompaniesHouseSearchResponse,
+  CompanyLookupResult,
   CompanyRecord,
   RecentFiling,
   RegisteredAddress,
 } from './types.js';
-import { basicAuthHeader, fetchJson, normalizeDate, normalizeText, uniqueStrings } from './utils.js';
+import {
+  basicAuthHeader,
+  fetchJson,
+  isHttpStatus,
+  normalizeDate,
+  normalizeText,
+  uniqueStrings,
+} from './utils.js';
 
 const API_BASE = 'https://api.company-information.service.gov.uk';
 const WEB_BASE = 'https://find-and-update.company-information.service.gov.uk';
@@ -22,7 +30,7 @@ function authHeaders(apiKey: string): HeadersInit {
 
 function normalizeAddress(address: CompaniesHouseProfile['registered_office_address']): RegisteredAddress | null {
   if (!address) return null;
-  return {
+  const normalized = {
     addressLine1: normalizeText(address.address_line_1),
     addressLine2: normalizeText(address.address_line_2),
     locality: normalizeText(address.locality),
@@ -30,6 +38,7 @@ function normalizeAddress(address: CompaniesHouseProfile['registered_office_addr
     postalCode: normalizeText(address.postal_code),
     country: normalizeText(address.country),
   };
+  return Object.values(normalized).some(Boolean) ? normalized : null;
 }
 
 function filingDocumentUrl(companyNumber: string, filing: CompaniesHouseFiling): string | null {
@@ -47,40 +56,100 @@ function normalizeFilings(companyNumber: string, filings: CompaniesHouseFiling[]
   }));
 }
 
-export async function searchCompaniesHouse(query: string, apiKey: string, limit: number): Promise<string[]> {
-  const url = new URL(`${API_BASE}/search/companies`);
-  url.searchParams.set('q', query);
-  url.searchParams.set('items_per_page', String(Math.min(Math.max(limit, 1), 100)));
+export async function searchCompaniesHouse(
+  query: string,
+  apiKey: string,
+  limit: number,
+  request: typeof fetchJson = fetchJson,
+): Promise<string[]> {
+  const maximum = Math.min(Math.max(limit, 1), 1000);
+  const numbers: string[] = [];
+  const seenNumbers = new Set<string>();
+  const seenOffsets = new Set<number>();
+  let startIndex = 0;
+  let pageCount = 0;
 
-  const data = await fetchJson<CompaniesHouseSearchResponse>(url.toString(), { headers: authHeaders(apiKey) });
-  return uniqueStrings((data.items ?? []).map((item) => item.company_number));
+  while (numbers.length < maximum) {
+    pageCount += 1;
+    if (pageCount > 10) throw new Error('Companies House search exceeded the 10-page safety limit.');
+    if (seenOffsets.has(startIndex)) throw new Error('Companies House pagination repeated an offset.');
+    seenOffsets.add(startIndex);
+    const pageSize = Math.min(100, maximum - numbers.length);
+    const url = new URL(`${API_BASE}/search/companies`);
+    url.searchParams.set('q', query);
+    url.searchParams.set('items_per_page', String(pageSize));
+    url.searchParams.set('start_index', String(startIndex));
+
+    const data = await request<CompaniesHouseSearchResponse>(url.toString(), { headers: authHeaders(apiKey) });
+    if (!data || typeof data !== 'object' || (data.items !== undefined && !Array.isArray(data.items))) {
+      throw new Error('Companies House search returned a malformed response.');
+    }
+    const items = data.items ?? [];
+    const countBeforePage = numbers.length;
+    for (const item of items) {
+      const number = normalizeText(item?.company_number)?.replace(/\s+/g, '').toUpperCase();
+      if (!number || seenNumbers.has(number)) continue;
+      seenNumbers.add(number);
+      numbers.push(number);
+      if (numbers.length >= maximum) break;
+    }
+
+    const nextIndex = startIndex + items.length;
+    const totalResults = Number(data.total_results);
+    if (items.length === 0 || nextIndex <= startIndex) break;
+    if (Number.isFinite(totalResults)) {
+      if (nextIndex >= totalResults) break;
+    } else if (items.length < pageSize) {
+      break;
+    }
+    if (numbers.length === countBeforePage) throw new Error('Companies House pagination repeated the same companies.');
+    startIndex = nextIndex;
+  }
+
+  return numbers;
 }
 
-async function getCompanyProfile(companyNumber: string, apiKey: string): Promise<CompaniesHouseProfile> {
-  return fetchJson<CompaniesHouseProfile>(`${API_BASE}/company/${encodeURIComponent(companyNumber)}`, {
-    headers: authHeaders(apiKey),
-  });
+async function getCompanyProfile(
+  companyNumber: string,
+  apiKey: string,
+  request: typeof fetchJson,
+): Promise<CompaniesHouseProfile | null> {
+  try {
+    const profile = await request<CompaniesHouseProfile>(`${API_BASE}/company/${encodeURIComponent(companyNumber)}`, {
+      headers: authHeaders(apiKey),
+    });
+    if (!profile || typeof profile !== 'object') throw new Error('Companies House profile returned a malformed response.');
+    return profile;
+  } catch (error) {
+    if (isHttpStatus(error, 404)) return null;
+    throw error;
+  }
 }
 
-async function getCompanyFilings(companyNumber: string, apiKey: string): Promise<CompaniesHouseFiling[]> {
+async function getCompanyFilings(
+  companyNumber: string,
+  apiKey: string,
+  request: typeof fetchJson,
+): Promise<CompaniesHouseFiling[]> {
   const url = new URL(`${API_BASE}/company/${encodeURIComponent(companyNumber)}/filing-history`);
   url.searchParams.set('items_per_page', '10');
 
-  const data = await fetchJson<CompaniesHouseFilingHistory>(url.toString(), { headers: authHeaders(apiKey) });
+  const data = await request<CompaniesHouseFilingHistory>(url.toString(), { headers: authHeaders(apiKey) });
+  if (!data || typeof data !== 'object' || (data.items !== undefined && !Array.isArray(data.items))) {
+    throw new Error('Companies House filing history returned a malformed response.');
+  }
   return data.items ?? [];
 }
 
-export async function getCompaniesHouseRecord(
+export function normalizeCompaniesHouseRecord(
   companyNumber: string,
   query: string | null,
-  apiKey: string,
-): Promise<CompanyRecord | null> {
-  const profile = await getCompanyProfile(companyNumber, apiKey);
-  const normalizedNumber = normalizeText(profile.company_number ?? companyNumber);
+  profile: CompaniesHouseProfile,
+  filings: CompaniesHouseFiling[],
+): CompanyRecord {
+  const normalizedNumber = normalizeText(profile.company_number ?? companyNumber)?.replace(/\s+/g, '').toUpperCase();
   const companyName = normalizeText(profile.company_name);
-  if (!normalizedNumber || !companyName) return null;
-
-  const filings = await getCompanyFilings(normalizedNumber, apiKey);
+  if (!normalizedNumber || !companyName) throw new Error('Companies House profile is missing company identity fields.');
   const recentFilings = normalizeFilings(normalizedNumber, filings);
 
   return {
@@ -108,5 +177,29 @@ export async function getCompaniesHouseRecord(
     sourceUrl: `${WEB_BASE}/company/${encodeURIComponent(normalizedNumber)}`,
     attribution: ATTRIBUTION,
     scrapedAt: new Date().toISOString(),
+  };
+}
+
+export async function getCompaniesHouseRecord(
+  companyNumber: string,
+  query: string | null,
+  apiKey: string,
+  request: typeof fetchJson = fetchJson,
+): Promise<CompanyLookupResult> {
+  const profile = await getCompanyProfile(companyNumber, apiKey, request);
+  if (!profile) return { record: null, warnings: [] };
+  const normalizedNumber = normalizeText(profile.company_number ?? companyNumber)?.replace(/\s+/g, '').toUpperCase();
+  if (!normalizedNumber) throw new Error('Companies House profile is missing a company number.');
+
+  let filings: CompaniesHouseFiling[] = [];
+  const warnings: string[] = [];
+  try {
+    filings = await getCompanyFilings(normalizedNumber, apiKey, request);
+  } catch (error) {
+    warnings.push(`Filing history unavailable for ${normalizedNumber}: ${(error as Error).message}`);
+  }
+  return {
+    record: normalizeCompaniesHouseRecord(normalizedNumber, query, profile, filings),
+    warnings,
   };
 }
