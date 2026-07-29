@@ -9,8 +9,8 @@ jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -20,3 +20,5 @@ jobs:
         run: npm run build
       - name: Unit tests
         run: npm test
+      - name: Audit production dependencies
+        run: npm run audit:prod
