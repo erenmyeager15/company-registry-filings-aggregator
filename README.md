@@ -99,12 +99,14 @@ Records are deduplicated by `source + entityId` before billing. Source and filin
 | SEC EDGAR fields | `tickers`, `exchanges`, `stateOfIncorporation`, `fiscalYearEnd`, `sicCodes` |
 | Filing metadata | `lastFilingDate`, `recentFilings.formType`, `recentFilings.filingDate`, `recentFilings.accessionNumber`, `recentFilings.documentUrl` |
 
-## Sample Output
+## Verified Sample Output
+
+This record was mapped from Microsoft Corporation's official SEC submissions response on August 2, 2026.
 
 ```json
 {
   "source": "sec_edgar",
-  "query": "Microsoft",
+  "query": "MSFT",
   "entityId": "0000789019",
   "companyName": "MICROSOFT CORP",
   "status": null,
@@ -122,18 +124,24 @@ Records are deduplicated by `source + entityId` before billing. Source and filin
   "confirmationStatementLastMadeUpTo": null,
   "dissolutionDate": null,
   "fiscalYearEnd": "0630",
-  "lastFilingDate": "2026-04-24",
+  "lastFilingDate": "2026-07-29",
   "recentFilings": [
     {
-      "formType": "10-Q",
-      "filingDate": "2026-04-24",
-      "accessionNumber": "0000950170-26-000000",
-      "documentUrl": "https://www.sec.gov/Archives/edgar/data/789019/000095017026000000/example.htm"
+      "formType": "10-K",
+      "filingDate": "2026-07-29",
+      "accessionNumber": "0001193125-26-323660",
+      "documentUrl": "https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft-20260630.htm"
+    },
+    {
+      "formType": "8-K",
+      "filingDate": "2026-07-29",
+      "accessionNumber": "0001193125-26-323632",
+      "documentUrl": "https://www.sec.gov/Archives/edgar/data/789019/000119312526323632/msft-20260729.htm"
     }
   ],
   "sourceUrl": "https://www.sec.gov/edgar/browse/?CIK=789019&owner=exclude",
   "attribution": "SEC EDGAR public company submissions data.",
-  "scrapedAt": "2026-06-14T00:00:00.000Z"
+  "scrapedAt": "2026-08-02T00:00:00.000Z"
 }
 ```
 
@@ -144,7 +152,7 @@ This Actor uses pay per event pricing.
 | Event | When charged | Price |
 | --- | --- | --- |
 | `apify-actor-start` | When the Actor starts; one event per GB of memory, minimum one | `$0.00005` |
-| `company-record-scraped` | Each clean company/entity record saved to the dataset | `$0.004` |
+| `company-record-scraped` | Each clean company/entity record saved to the dataset | `$0.002` |
 
 Each unique company record is saved and charged atomically. Empty searches and failed records are not billed, and later sources stop when the user's spending limit is reached.
 

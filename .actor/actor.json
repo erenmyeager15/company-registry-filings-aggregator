@@ -2,13 +2,14 @@
   "actorSpecification": 1,
   "name": "company-registry-filings-aggregator",
   "title": "Company Registry & Filings Aggregator",
-  "description": "Look up official entity-level company registry and SEC filing data from public APIs. Use for AI company research, due diligence briefs, and firmographic enrichment; returns company identifiers, registry facts, filing metadata, and source URLs. Does not request officer, director, PSC, email, phone, or contact-person fields.",
+  "description": "Look up official entity-level company registry and SEC filing data from public APIs for company research, due diligence, and firmographic enrichment. Returns identifiers, registry facts, filing metadata, and source URLs without officer, director, PSC, email, phone, or contact-person fields.",
   "version": "1.0",
   "dockerfile": "Dockerfile",
   "input": "../INPUT_SCHEMA.json",
   "readme": "../README.md",
   "output": "./output_schema.json",
-  "categories": ["BUSINESS", "AUTOMATION", "OTHER"],
+  "categories": ["BUSINESS", "AUTOMATION"],
+  "categoriesVersion": "1.0.0",
   "pricingInfo": {
     "pricingModel": "PAY_PER_EVENT",
     "pricingPerEvent": {
