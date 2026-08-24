@@ -101,6 +101,14 @@ export function normalizeInput(rawInput: unknown): NormalizedInput {
   if (!Number.isInteger(maxResultsValue) || Number(maxResultsValue) < 1 || Number(maxResultsValue) > 1000) {
     throw new Error('maxResults must be an integer between 1 and 1000.');
   }
+  const maxFilingsPerCompanyValue = rawInput.maxFilingsPerCompany ?? 20;
+  if (
+    !Number.isInteger(maxFilingsPerCompanyValue)
+    || Number(maxFilingsPerCompanyValue) < 1
+    || Number(maxFilingsPerCompanyValue) > 100
+  ) {
+    throw new Error('maxFilingsPerCompany must be an integer between 1 and 100.');
+  }
 
   const inputApiKey = readString(rawInput.companiesHouseApiKey, 'companiesHouseApiKey', 200);
   const envApiKey = readString(process.env.COMPANIES_HOUSE_API_KEY, 'COMPANIES_HOUSE_API_KEY', 200);
@@ -137,6 +145,7 @@ export function normalizeInput(rawInput: unknown): NormalizedInput {
     companyNumbers,
     ciks,
     maxResults: Number(maxResultsValue),
+    maxFilingsPerCompany: Number(maxFilingsPerCompanyValue),
     companiesHouseApiKey,
     secUserAgent,
   };

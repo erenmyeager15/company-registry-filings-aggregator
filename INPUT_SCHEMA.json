@@ -1,6 +1,6 @@
 {
   "title": "Company Registry & Filings Aggregator input",
-  "description": "Look up official entity-level company registry or SEC filing records for AI company research, due diligence briefs, and firmographic enrichment.",
+  "description": "Look up official company identity, website/domain, registered-office, and filing-change records for research and due diligence without personal-contact collection.",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
@@ -71,6 +71,15 @@
       "default": 10,
       "minimum": 1,
       "maximum": 1000
+    },
+    "maxFilingsPerCompany": {
+      "title": "Recent filings per company",
+      "type": "integer",
+      "description": "Maximum recent filing-change records included inside each company row. Officer and PSC details are never requested or returned.",
+      "editor": "number",
+      "default": 20,
+      "minimum": 1,
+      "maximum": 100
     },
     "companiesHouseApiKey": {
       "title": "Companies House API key",

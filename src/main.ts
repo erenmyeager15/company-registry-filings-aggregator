@@ -30,7 +30,13 @@ async function collectCompaniesHouse(input: NormalizedInput, limit: number): Pro
     if (records.length >= limit || visited.has(companyNumber)) return;
     visited.add(companyNumber);
     try {
-      const result = await getCompaniesHouseRecord(companyNumber, query, apiKey);
+      const result = await getCompaniesHouseRecord(
+        companyNumber,
+        query,
+        apiKey,
+        undefined,
+        input.maxFilingsPerCompany,
+      );
       completedOperations += 1;
       warnings.push(...result.warnings);
       if (result.record) records.push(result.record);
@@ -78,7 +84,7 @@ async function collectSec(input: NormalizedInput, limit: number): Promise<Source
     if (records.length >= limit || visited.has(cik)) return;
     visited.add(cik);
     try {
-      const result = await getSecRecord(cik, query, input.secUserAgent);
+      const result = await getSecRecord(cik, query, input.secUserAgent, undefined, input.maxFilingsPerCompany);
       completedOperations += 1;
       warnings.push(...result.warnings);
       if (result.record) records.push(result.record);
@@ -132,6 +138,7 @@ try {
     companyNumbers: input.companyNumbers.length,
     ciks: input.ciks.length,
     maxResults: input.maxResults,
+    maxFilingsPerCompany: input.maxFilingsPerCompany,
   });
 
   for (const [sourceIndex, source] of input.sources.entries()) {

@@ -25,6 +25,39 @@ export function normalizeDate(value: unknown): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
 }
 
+export function normalizeDateTime(value: unknown): string | null {
+  const text = normalizeText(value);
+  if (!text) return null;
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+export function normalizePublicWebsite(value: unknown): { url: string; domain: string } | null {
+  const text = normalizeText(value);
+  if (!text || /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text) || /^(?:mailto|tel):/i.test(text)) {
+    return null;
+  }
+  try {
+    const candidate = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+    const parsed = new URL(candidate);
+    const decoded = decodeURIComponent(parsed.toString());
+    if (
+      !['http:', 'https:'].includes(parsed.protocol)
+      || parsed.username
+      || parsed.password
+      || !parsed.hostname.includes('.')
+      || /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(decoded)
+    ) return null;
+    parsed.hash = '';
+    return {
+      url: parsed.toString(),
+      domain: parsed.hostname.toLowerCase().replace(/^www\./, ''),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function isValidCalendarDate(value: string): boolean {
   const [yearText, monthText, dayText] = value.split('-');
   const year = Number(yearText);
@@ -100,6 +133,10 @@ export interface FetchJsonOptions {
   pace?: boolean;
 }
 
+export interface FetchTextOptions extends FetchJsonOptions {
+  maxBytes?: number;
+}
+
 export async function fetchJson<T>(
   url: string,
   options: RequestInit = {},
@@ -135,6 +172,73 @@ export async function fetchJson<T>(
       } catch {
         throw new Error(`Official API returned invalid JSON: ${text.slice(0, 200)}`);
       }
+    } catch (error) {
+      lastError = error as Error;
+      if (attempt >= retries || !isRetryable(error)) break;
+      const retryAfterMs = error instanceof HttpError ? error.retryAfterMs : null;
+      await delay(retryAfterMs ?? Math.min(650 * 2 ** (attempt - 1), MAX_RETRY_DELAY_MS));
+    }
+  }
+
+  throw lastError ?? new Error(`Failed to fetch ${url}`);
+}
+
+export async function fetchText(
+  url: string,
+  options: RequestInit = {},
+  fetchOptions: FetchTextOptions = {},
+): Promise<string> {
+  const retries = Math.min(Math.max(fetchOptions.retries ?? 3, 1), 5);
+  const timeoutMs = Math.min(Math.max(fetchOptions.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS, 1000), 60_000);
+  const maxBytes = Math.min(Math.max(fetchOptions.maxBytes ?? 2_000_000, 10_000), 5_000_000);
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    try {
+      if (fetchOptions.pace !== false) await waitForHostSlot(url);
+      const timeoutSignal = AbortSignal.timeout(timeoutMs);
+      const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+      const response = await fetch(url, {
+        ...options,
+        signal,
+        headers: {
+          accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5',
+          range: `bytes=0-${maxBytes - 1}`,
+          ...(options.headers ?? {}),
+        },
+      });
+      if (!response.ok) {
+        const errorText = (await response.text()).slice(0, 500);
+        throw new HttpError(
+          `${response.status} ${response.statusText}: ${errorText}`,
+          response.status,
+          parseRetryAfter(response.headers.get('retry-after')),
+        );
+      }
+      if (!response.body) return '';
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let output = '';
+      let receivedBytes = 0;
+      let completed = false;
+      while (receivedBytes < maxBytes) {
+        const { done, value } = await reader.read();
+        if (done) {
+          completed = true;
+          break;
+        }
+        const remaining = maxBytes - receivedBytes;
+        const chunk = value.byteLength > remaining ? value.subarray(0, remaining) : value;
+        receivedBytes += chunk.byteLength;
+        output += decoder.decode(chunk, { stream: receivedBytes < maxBytes });
+        if (chunk.byteLength < value.byteLength) {
+          await reader.cancel();
+          break;
+        }
+      }
+      if (!completed && receivedBytes >= maxBytes) await reader.cancel();
+      output += decoder.decode();
+      return output;
     } catch (error) {
       lastError = error as Error;
       if (attempt >= retries || !isRetryable(error)) break;

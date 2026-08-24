@@ -1,13 +1,13 @@
 {
   "actorOutputSchemaVersion": 1,
   "title": "Company Registry & Filings Aggregator Output",
-  "description": "Structured entity-level company registry and SEC filing records from official public APIs, excluding officer, director, and personal-data fields.",
+  "description": "Structured company identity, official website/domain, registered-office, previous-name, corporate-address, and filing-change records from official public APIs, excluding personal-contact fields.",
   "type": "object",
   "properties": {
     "results": {
       "type": "string",
       "title": "Company registry and filing records",
-      "description": "Clean dataset items containing official company identifiers, names, statuses, jurisdictions, incorporation dates, SIC codes, addresses, tickers, filing metadata, source URLs, and attribution data.",
+      "description": "Clean company rows with official identifiers, names, websites/domains when registry-supplied, corporate addresses, filing-change metadata, source URLs, and attribution.",
       "template": "{{links.apiDefaultDatasetUrl}}/items"
     }
   }
