@@ -2,8 +2,8 @@
   "actorSpecification": 1,
   "name": "company-registry-filings-aggregator",
   "title": "Company Registry & Filings Aggregator",
-  "description": "Research official company identity, websites/domains, registered offices, previous names, and normalized filing changes from SEC EDGAR and UK Companies House—without officer, PSC, email, phone, or personal-contact fields.",
-  "version": "1.0",
+  "description": "Monitor US SEC and UK registry company identities and filings with bounded repeat-run history, new-filing alerts, and CSV reports—without personal-contact collection.",
+  "version": "1.1",
   "dockerfile": "Dockerfile",
   "input": "../INPUT_SCHEMA.json",
   "readme": "../README.md",
@@ -31,12 +31,15 @@
       }
     }
   },
+  "environmentVariables": {
+    "SEC_USER_AGENT": "@secRegistryContact"
+  },
   "storages": {
     "dataset": "./dataset_schema.json"
   },
   "defaultRunOptions": {
     "build": "latest",
-    "memoryMbytes": 512,
+    "memoryMbytes": 256,
     "timeoutSecs": 1200
   }
 }

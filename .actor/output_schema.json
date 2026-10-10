@@ -9,6 +9,18 @@
       "title": "Company registry and filing records",
       "description": "Clean company rows with official identifiers, names, websites/domains when registry-supplied, corporate addresses, filing-change metadata, source URLs, and attribution.",
       "template": "{{links.apiDefaultDatasetUrl}}/items"
+    },
+    "changeReport": {
+      "type": "string",
+      "title": "Company change report",
+      "description": "Markdown summary of newly observed official filings and company-level changes.",
+      "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/CHANGE_REPORT"
+    },
+    "changeReportCsv": {
+      "type": "string",
+      "title": "Company change CSV",
+      "description": "Spreadsheet-ready summary of monitored company changes.",
+      "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/CHANGE_REPORT_CSV"
     }
   }
 }

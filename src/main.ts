@@ -3,8 +3,11 @@ import { allOfficialOperationsFailed, pushUniqueRecords, sourceBudget } from './
 import { getCompaniesHouseRecord, searchCompaniesHouse } from './companiesHouse.js';
 import { getSecRecord, loadSecTickerEntries, searchSecCiks } from './edgar.js';
 import { normalizeInput } from './input.js';
+import { applyMonitoring, monitoringRecordKey, monitoringStoreName } from './monitoring.js';
 import { recordSafetyIssue } from './recordSafety.js';
+import { buildChangeCsv, buildChangeMarkdown } from './report.js';
 import type {
+  CompanyMonitoringState,
   CompanyRecord,
   NormalizedInput,
   SourceCollectionResult,
@@ -126,6 +129,15 @@ await Actor.init();
 try {
   const input = normalizeInput((await Actor.getInput<unknown>()) ?? {});
   const seen = new Set<string>();
+  let monitoringStore: Awaited<ReturnType<typeof Actor.openKeyValueStore>> | null = null;
+  if (input.trackChanges) {
+    try {
+      monitoringStore = await Actor.openKeyValueStore(monitoringStoreName(input.monitorName));
+    } catch {
+      log.warning('Monitoring storage is unavailable; continuing with ordinary company records.');
+    }
+  }
+  const savedRecords: CompanyRecord[] = [];
   let savedCount = 0;
   let warningCount = 0;
   let completedOperations = 0;
@@ -139,6 +151,7 @@ try {
     ciks: input.ciks.length,
     maxResults: input.maxResults,
     maxFilingsPerCompany: input.maxFilingsPerCompany,
+    trackChanges: input.trackChanges,
   });
 
   for (const [sourceIndex, source] of input.sources.entries()) {
@@ -166,7 +179,41 @@ try {
       safeRecords,
       seen,
       input.maxResults - savedCount,
-      (record) => Actor.pushData(record, COMPANY_RECORD_EVENT),
+      async (sourceRecord) => {
+        let record = sourceRecord;
+        let nextState: CompanyMonitoringState | null = null;
+        const stateKey = monitoringRecordKey(sourceRecord);
+        if (monitoringStore) {
+          try {
+            const previous = await monitoringStore.getValue<CompanyMonitoringState>(stateKey);
+            const result = applyMonitoring(sourceRecord, previous, input.monitorName, input.observationHistoryLimit);
+            record = result.record;
+            nextState = result.nextState;
+          } catch {
+            warningCount += 1;
+            log.warning(`Monitoring history unavailable for ${sourceRecord.source}:${sourceRecord.entityId}; saving a baseline.`);
+            const result = applyMonitoring(sourceRecord, null, input.monitorName, input.observationHistoryLimit);
+            record = result.record;
+            nextState = result.nextState;
+          }
+        }
+        const safetyIssue = recordSafetyIssue(record);
+        if (safetyIssue) throw new Error(`Monitored record failed safety validation: ${safetyIssue}`);
+        const charge = await Actor.pushData(record, COMPANY_RECORD_EVENT);
+        const wasSaved = charge.chargedCount > 0 || !charge.eventChargeLimitReached;
+        if (wasSaved) {
+          savedRecords.push(record);
+          if (monitoringStore && nextState) {
+            try {
+              await monitoringStore.setValue(stateKey, nextState);
+            } catch {
+              warningCount += 1;
+              log.warning(`Could not persist monitoring history for ${sourceRecord.source}:${sourceRecord.entityId}.`);
+            }
+          }
+        }
+        return charge;
+      },
     );
     savedCount += pushResult.saved;
     stoppedByChargeLimit = pushResult.stopped;
@@ -174,6 +221,16 @@ try {
 
   if (!stoppedByChargeLimit && allOfficialOperationsFailed(completedOperations, failedOperations)) {
     throw new Error(`All ${failedOperations} official API operation(s) failed.`);
+  }
+
+  if (monitoringStore && savedRecords.length > 0) {
+    try {
+      await Actor.setValue('CHANGE_REPORT', buildChangeMarkdown(savedRecords, input.monitorName), { contentType: 'text/markdown' });
+      await Actor.setValue('CHANGE_REPORT_CSV', buildChangeCsv(savedRecords), { contentType: 'text/csv' });
+    } catch {
+      warningCount += 1;
+      log.warning('Could not save one or more optional change reports; dataset records remain available.');
+    }
   }
 
   if (stoppedByChargeLimit) {

@@ -13,7 +13,9 @@ import {
   searchSecCiks,
 } from './edgar.js';
 import { normalizeInput } from './input.js';
+import { applyMonitoring, monitoringRecordKey, monitoringStoreName } from './monitoring.js';
 import { containsForbiddenField, recordSafetyIssue } from './recordSafety.js';
+import { buildChangeCsv, buildChangeMarkdown } from './report.js';
 import type { CompanyRecord, SecSubmissions, SecTickerEntry } from './types.js';
 import {
   fetchJson,
@@ -96,6 +98,7 @@ test('text and date normalization are deterministic and reject impossible dates'
 test('input normalization preserves safe defaults and canonicalizes identifiers', () => {
   const input = normalizeInput({
     query: 'Microsoft',
+    secUserAgent: 'CompanyRegistryTest/1.0 monitored@example.org',
     companyNames: [' microsoft ', 'Apple'],
     ciks: ['789019', 320193],
     maxResults: 4,
@@ -105,6 +108,9 @@ test('input normalization preserves safe defaults and canonicalizes identifiers'
   assert.deepEqual(input.ciks, ['0000789019', '0000320193']);
   assert.equal(input.maxResults, 4);
   assert.equal(input.maxFilingsPerCompany, 20);
+  assert.equal(input.trackChanges, true);
+  assert.equal(input.monitorName, 'us-company-watchlist');
+  assert.equal(input.observationHistoryLimit, 10);
 
   const uk = normalizeInput({
     sources: ['COMPANIES_HOUSE'],
@@ -117,10 +123,14 @@ test('input normalization preserves safe defaults and canonicalizes identifiers'
 
 test('input normalization rejects malformed, irrelevant, or non-compliant input', (t) => {
   const previousKey = process.env.COMPANIES_HOUSE_API_KEY;
+  const previousSecUserAgent = process.env.SEC_USER_AGENT;
   delete process.env.COMPANIES_HOUSE_API_KEY;
+  delete process.env.SEC_USER_AGENT;
   t.after(() => {
     if (previousKey === undefined) delete process.env.COMPANIES_HOUSE_API_KEY;
     else process.env.COMPANIES_HOUSE_API_KEY = previousKey;
+    if (previousSecUserAgent === undefined) delete process.env.SEC_USER_AGENT;
+    else process.env.SEC_USER_AGENT = previousSecUserAgent;
   });
 
   assert.throws(() => normalizeInput([]), /JSON object/);
@@ -138,18 +148,77 @@ test('input normalization rejects malformed, irrelevant, or non-compliant input'
     /companiesHouseApiKey is required/,
   );
   assert.throws(
-    () => normalizeInput({ sources: ['sec_edgar'], companyNumbers: ['00445790'], query: 'Example' }),
+    () => normalizeInput({ sources: ['sec_edgar'], companyNumbers: ['00445790'], query: 'Example', secUserAgent: 'TestApp/1.0 monitored@example.org' }),
     /Select companies_house/,
   );
   assert.throws(() => normalizeInput({ query: 'name@example.com' }), /not email or contact identifiers/);
+  assert.throws(() => normalizeInput({ query: 'Example', monitorName: 'person@example.com', secUserAgent: 'TestApp/1.0 monitored@example.org' }), /watchlist label/);
+  assert.throws(() => normalizeInput({ query: 'Example', observationHistoryLimit: 1, secUserAgent: 'TestApp/1.0 monitored@example.org' }), /between 2 and 50/);
+  assert.throws(() => normalizeInput({ query: 'Example', secUserAgent: 'TestApp/1.0 contact@example.com' }), /real monitored contact/);
+  assert.throws(() => normalizeInput({ query: 'Example' }), /real monitored contact/);
   assert.throws(
     () => normalizeInput({ query: 'Example', secUserAgent: 'anonymous bot' }),
-    /include a contact email/,
+    /real monitored contact/,
   );
   assert.throws(
     () => normalizeInput({ query: 'Example', secUserAgent: 'Example bot admin@example.com\r\nX-Test: bad' }),
     /line breaks/,
   );
+});
+
+test('SEC uses a private Actor contact unless the caller supplies a real override', (t) => {
+  const previous = process.env.SEC_USER_AGENT;
+  process.env.SEC_USER_AGENT = 'PrivateRegistryActor/1.1 monitored@example.org';
+  t.after(() => {
+    if (previous === undefined) delete process.env.SEC_USER_AGENT;
+    else process.env.SEC_USER_AGENT = previous;
+  });
+  assert.equal(normalizeInput({ query: 'Microsoft' }).secUserAgent, 'PrivateRegistryActor/1.1 monitored@example.org');
+  assert.equal(
+    normalizeInput({ query: 'Microsoft', secUserAgent: 'CustomerResearch/1.0 customer@example.org' }).secUserAgent,
+    'CustomerResearch/1.0 customer@example.org',
+  );
+});
+
+test('company monitoring stores a private baseline, then only actual new filings', () => {
+  const filing = {
+    formType: '10-K', filingDate: '2026-07-10', reportDate: '2026-06-30',
+    acceptedAt: '2026-07-10T10:00:00.000Z', accessionNumber: '0001-26-000010',
+    category: 'annual_report', subcategory: null, description: 'Annual report',
+    changeType: 'annual_report', isAmendment: false, filingItems: [], paperFiled: null,
+    pageCount: null, documentUrl: 'https://www.sec.gov/Archives/edgar/data/1/10/annual.htm',
+  };
+  const baseline = applyMonitoring(companyRecord({ recentFilings: [filing], lastFilingDate: '2026-07-10' }), null, 'US filings', 2);
+  assert.equal(baseline.record.monitoringStatus, 'baseline');
+  assert.equal(baseline.record.newFilingCount, 0);
+  assert.equal(recordSafetyIssue(baseline.record), null);
+  const unchanged = applyMonitoring(companyRecord({ recentFilings: [filing], lastFilingDate: '2026-07-10', scrapedAt: '2026-07-15T00:00:00.000Z' }), baseline.nextState, 'US filings', 2);
+  assert.equal(unchanged.record.monitoringStatus, 'unchanged');
+  const event = { ...filing, formType: '8-K', filingDate: '2026-07-16', accessionNumber: '0001-26-000011', changeType: 'material_event' };
+  const changed = applyMonitoring(companyRecord({ recentFilings: [event, filing], scrapedAt: '2026-07-16T00:00:00.000Z' }), unchanged.nextState, 'US filings', 2);
+  assert.equal(changed.record.monitoringStatus, 'updated');
+  assert.equal(changed.record.changeSeverity, 'high');
+  assert.equal(changed.record.newFilingCount, 1);
+  assert.deepEqual(changed.record.changeSignals, ['new_filings', 'new_material_event_filing']);
+  assert.equal(changed.nextState.history.length, 2);
+  assert.equal(changed.nextState.observationCount, 3);
+  assert.equal(recordSafetyIssue(changed.record), null);
+  assert.match(buildChangeCsv([changed.record]), /new_material_event_filing/);
+  assert.match(buildChangeMarkdown([changed.record], 'US filings'), /updated: 1/);
+  assert.doesNotMatch(buildChangeCsv([changed.record]), /person@example.com/);
+  assert.match(buildChangeCsv([companyRecord({ companyName: '=IMPORTXML("https://example.com")' })]), /'\=IMPORTXML/);
+});
+
+test('monitoring avoids false loss alerts for partial source responses and isolates watchlists', () => {
+  const record = companyRecord({ officialWebsiteDomain: 'example.com' });
+  const first = applyMonitoring(record, null, 'first', 10);
+  const partial = applyMonitoring(companyRecord({ scrapedAt: '2026-07-15T00:00:00.000Z' }), first.nextState, 'first', 10);
+  assert.equal(partial.record.monitoringStatus, 'partial');
+  assert.deepEqual(partial.record.changeSignals, []);
+  assert.equal(partial.nextState.history.at(-1)?.officialWebsiteDomain, 'example.com');
+  assert.notEqual(monitoringStoreName('first'), monitoringStoreName('second'));
+  assert.equal(monitoringStoreName(' FIRST '), monitoringStoreName('first'));
+  assert.equal(monitoringRecordKey(record), monitoringRecordKey(record));
 });
 
 test('SEC ticker search ranks exact tickers first and deduplicates CIKs', () => {

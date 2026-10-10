@@ -81,6 +81,30 @@
       "minimum": 1,
       "maximum": 100
     },
+    "trackChanges": {
+      "title": "Track changes between runs",
+      "type": "boolean",
+      "description": "Save a bounded private history for each company and report new filings, name, status, website-domain and address changes on repeat runs. Use the same monitor name each time.",
+      "editor": "checkbox",
+      "default": true
+    },
+    "monitorName": {
+      "title": "Watchlist name",
+      "type": "string",
+      "description": "Stable name for a scheduled watchlist. Different names keep separate monitoring histories.",
+      "editor": "textfield",
+      "default": "us-company-watchlist",
+      "maxLength": 100
+    },
+    "observationHistoryLimit": {
+      "title": "Stored observations per company",
+      "type": "integer",
+      "description": "Maximum number of private historical observations retained for each company in this watchlist.",
+      "editor": "number",
+      "default": 10,
+      "minimum": 2,
+      "maximum": 50
+    },
     "companiesHouseApiKey": {
       "title": "Companies House API key",
       "type": "string",
@@ -91,9 +115,8 @@
     "secUserAgent": {
       "title": "SEC User-Agent",
       "type": "string",
-      "description": "SEC requires an application identity and contact email in User-Agent. Replace contact@example.com with a monitored email for production use.",
+      "description": "Optional override. The Actor uses its privately configured monitored SEC contact by default. If overriding, provide your own application identity and real monitored email; example addresses are rejected.",
       "editor": "textfield",
-      "default": "CompanyRegistryFilingsAggregator/1.0 contact@example.com",
       "minLength": 10,
       "maxLength": 255
     },

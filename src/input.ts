@@ -2,7 +2,6 @@ import type { NormalizedInput, SourceName } from './types.js';
 import { normalizeText, uniqueStrings } from './utils.js';
 
 const DEFAULT_SOURCES: SourceName[] = ['sec_edgar'];
-export const DEFAULT_SEC_USER_AGENT = 'CompanyRegistryFilingsAggregator/1.0 contact@example.com';
 const VALID_SOURCES = new Set<SourceName>(['companies_house', 'sec_edgar']);
 const MAX_QUERY_COUNT = 50;
 const MAX_IDENTIFIER_COUNT = 1000;
@@ -115,9 +114,23 @@ export function normalizeInput(rawInput: unknown): NormalizedInput {
   const companiesHouseApiKey = inputApiKey ?? envApiKey;
   const inputUserAgent = readString(rawInput.secUserAgent, 'secUserAgent', 255);
   const envUserAgent = readString(process.env.SEC_USER_AGENT, 'SEC_USER_AGENT', 255);
-  const secUserAgent = inputUserAgent ?? envUserAgent ?? DEFAULT_SEC_USER_AGENT;
-  if (!/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(secUserAgent)) {
-    throw new Error('secUserAgent must identify the application and include a contact email for SEC fair access.');
+  const secUserAgent = inputUserAgent ?? envUserAgent ?? '';
+  if (sources.includes('sec_edgar') && (
+    !/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(secUserAgent)
+    || /contact@example\.com/i.test(secUserAgent)
+  )) {
+    throw new Error('SEC requests require a real monitored contact email in secUserAgent or the Actor-managed SEC_USER_AGENT setting.');
+  }
+
+  const trackChanges = rawInput.trackChanges ?? true;
+  if (typeof trackChanges !== 'boolean') throw new Error('trackChanges must be a boolean.');
+  const monitorName = readString(rawInput.monitorName, 'monitorName', 100) ?? 'us-company-watchlist';
+  if (containsContactIdentifier(monitorName)) {
+    throw new Error('monitorName must be a watchlist label, not an email or contact identifier.');
+  }
+  const observationHistoryLimit = rawInput.observationHistoryLimit ?? 10;
+  if (!Number.isInteger(observationHistoryLimit) || Number(observationHistoryLimit) < 2 || Number(observationHistoryLimit) > 50) {
+    throw new Error('observationHistoryLimit must be an integer between 2 and 50.');
   }
 
   if (sources.includes('companies_house') && !companiesHouseApiKey) {
@@ -148,5 +161,8 @@ export function normalizeInput(rawInput: unknown): NormalizedInput {
     maxFilingsPerCompany: Number(maxFilingsPerCompanyValue),
     companiesHouseApiKey,
     secUserAgent,
+    trackChanges,
+    monitorName,
+    observationHistoryLimit: Number(observationHistoryLimit),
   };
 }

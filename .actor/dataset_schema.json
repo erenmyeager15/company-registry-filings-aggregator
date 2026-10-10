@@ -45,7 +45,22 @@
     "recentFilings": { "type": "array", "title": "Recent Filings" },
     "sourceUrl": { "type": "string", "title": "Source URL" },
     "attribution": { "type": "string", "title": "Attribution" },
-    "scrapedAt": { "type": "string", "title": "Scraped At" }
+    "scrapedAt": { "type": "string", "title": "Scraped At" },
+    "monitorName": { "type": "string", "title": "Watchlist" },
+    "monitoringStatus": { "type": "string", "title": "Monitoring Status" },
+    "changeSeverity": { "type": "string", "title": "Change Severity" },
+    "changeSummary": { "type": "string", "title": "Change Summary" },
+    "firstSeenAt": { "type": "string", "title": "First Seen" },
+    "previousSeenAt": { "type": "string", "title": "Previous Check" },
+    "observationCount": { "type": "integer", "title": "Observation Count" },
+    "previousCompanyName": { "type": "string", "title": "Previous Company Name" },
+    "previousStatus": { "type": "string", "title": "Previous Status" },
+    "previousWebsiteDomain": { "type": "string", "title": "Previous Website Domain" },
+    "previousLastFilingDate": { "type": "string", "title": "Previous Last Filing" },
+    "changedFields": { "type": "array", "title": "Changed Fields" },
+    "changeSignals": { "type": "array", "title": "Change Signals" },
+    "newFilings": { "type": "array", "title": "New Filings" },
+    "newFilingCount": { "type": "integer", "title": "New Filing Count" }
   },
   "views": {
     "companies": {
@@ -89,6 +104,15 @@
           "latestFilingChangeType",
           "recentFilingChangeTypes",
           "recentFilings",
+          "monitorName",
+          "monitoringStatus",
+          "changeSeverity",
+          "changeSummary",
+          "previousSeenAt",
+          "observationCount",
+          "changeSignals",
+          "newFilingCount",
+          "newFilings",
           "sourceUrl",
           "scrapedAt"
         ]
@@ -133,6 +157,15 @@
           "latestFilingChangeType": { "label": "Latest Filing Change" },
           "recentFilingChangeTypes": { "label": "Recent Change Types" },
           "recentFilings": { "label": "Recent Filings" },
+          "monitorName": { "label": "Watchlist" },
+          "monitoringStatus": { "label": "Monitoring Status" },
+          "changeSeverity": { "label": "Change Severity" },
+          "changeSummary": { "label": "Change Summary" },
+          "previousSeenAt": { "label": "Previous Check" },
+          "observationCount": { "label": "Observations" },
+          "changeSignals": { "label": "Signals" },
+          "newFilingCount": { "label": "New Filings Count" },
+          "newFilings": { "label": "New Filings" },
           "sourceUrl": { "label": "Source URL" },
           "scrapedAt": { "label": "Scraped At" }
         }

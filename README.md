@@ -2,7 +2,27 @@
 
 Collect normalized company identity, official website/domain, registered-office, corporate-address, previous-name, and public filing-change data from official APIs. This Actor is designed for KYC checks, supplier due diligence, market research, finance research, compliance workflows, and business intelligence pipelines that need company facts without collecting personal contacts.
 
-The default source is **US SEC EDGAR**, which works without an API key. **UK Companies House** is also supported when you provide your free Companies House API key.
+The default source is **US SEC EDGAR**, which works without an API key. **UK Companies House** is also supported when you provide your free Companies House API key. A scheduled watchlist can compare company-level fields and filings with prior runs; the first run creates a baseline.
+
+## Repeat-run watchlist
+
+Keep the same `monitorName` in each scheduled run to detect newly observed filings, company-name/status changes, website-domain changes, and corporate-address changes. Each row has `monitoringStatus` (`baseline`, `unchanged`, `updated`, or `partial`), `changeSignals`, `newFilingCount`, and `newFilings`. The Actor also writes `CHANGE_REPORT` (Markdown) and `CHANGE_REPORT_CSV` to its default key-value store. A `partial` response does **not** treat a missing field as a confirmed deletion. History is stored in a separate named key-value store per watchlist and capped by `observationHistoryLimit` (2–50 observations per company). Delete that store to reset the watchlist; changing `monitorName` starts a separate baseline. This is observation-based monitoring, not a real-time filing alert or a guarantee that all filings are captured.
+
+For US-first scheduled workflows, use direct SEC CIKs where possible; this avoids ticker/name ambiguity:
+
+```json
+{
+  "sources": ["sec_edgar"],
+  "ciks": ["0000789019", "0000320193"],
+  "maxResults": 2,
+  "trackChanges": true,
+  "monitorName": "us-tech-filings",
+  "observationHistoryLimit": 10,
+  "secUserAgent": "YourResearchApp/1.0 your-monitored-email@example.org"
+}
+```
+
+The published Actor uses a privately configured monitored contact for SEC fair access. You can override `secUserAgent` with your own application identity and monitored email. SEC company submissions are public, but source availability and the accuracy of company-supplied details can change. This Actor uses official metadata and does not assert that every field is independently verified.
 
 ## Supported Sources
 
@@ -48,8 +68,7 @@ SEC EDGAR company lookup, no API key required:
   "sources": ["sec_edgar"],
   "query": "Microsoft",
   "maxResults": 3,
-  "maxFilingsPerCompany": 20,
-  "secUserAgent": "CompanyRegistryFilingsAggregator/1.0 contact@example.com"
+  "maxFilingsPerCompany": 20
 }
 ```
 
@@ -59,8 +78,7 @@ Direct SEC CIK lookup:
 {
   "sources": ["sec_edgar"],
   "ciks": ["0000789019"],
-  "maxResults": 1,
-  "secUserAgent": "CompanyRegistryFilingsAggregator/1.0 contact@example.com"
+  "maxResults": 1
 }
 ```
 
@@ -86,8 +104,11 @@ UK Companies House lookup with your API key:
 | `ciks` | string array | empty | Up to 1000 direct SEC CIK identifiers. Values are validated and padded to 10 digits. |
 | `maxResults` | integer | `10` | Maximum clean records to save, from 1 to 1000. |
 | `maxFilingsPerCompany` | integer | `20` | Recent filing-change records included per company, from 1 to 100. |
+| `trackChanges` | boolean | `true` | Compare with this watchlist's prior observations. |
+| `monitorName` | string | `us-company-watchlist` | Stable watchlist name; use different names to separate histories. |
+| `observationHistoryLimit` | integer | `10` | Maximum private observations retained per company, from 2 to 50. |
 | `companiesHouseApiKey` | secret string | empty | Free Companies House API key, required only when `companies_house` is selected. |
-| `secUserAgent` | string | `CompanyRegistryFilingsAggregator/1.0 contact@example.com` | SEC requires an application identity and contact email. Replace the placeholder with a monitored email for production use. Line breaks are rejected. |
+| `secUserAgent` | string | privately configured contact | Optional override with your own application identity and monitored contact email. Placeholder addresses and line breaks are rejected. Local deployments must set `SEC_USER_AGENT` or supply this input. |
 | `proxyConfiguration` | object | no proxy | Not required for official JSON APIs, included for Apify compatibility. |
 
 ## Output Overview
@@ -104,6 +125,7 @@ Records are deduplicated by `source + entityId` before billing. Source and filin
 | UK Companies House fields | `registeredAddress`, `registeredOfficeInDispute`, `registeredOfficeUndeliverable`, `accountsNextDue`, `accountsLastMadeUpTo`, `confirmationStatementNextDue`, `confirmationStatementLastMadeUpTo`, `dissolutionDate` |
 | SEC EDGAR fields | `legalEntityIdentifier`, `employerIdentificationNumber`, `companyCategory`, `businessAddress`, `mailingAddress`, `tickers`, `exchanges`, `stateOfIncorporation`, `stateOfIncorporationDescription`, `fiscalYearEnd`, `sicCodes` |
 | Filing changes | `lastFilingDate`, `latestFilingChangeType`, `recentFilingChangeTypes`, plus form, filing/report/acceptance dates, category, description, change type, amendment flag, filing items, document metadata, and document URL in `recentFilings` |
+| Repeat-run monitoring | `monitoringStatus`, `changeSeverity`, `changeSignals`, `newFilings`, `newFilingCount`, `previousSeenAt`, `observationCount` |
 
 ## Verified Sample Output
 

@@ -2,7 +2,6 @@
   "sources": ["sec_edgar"],
   "query": "Microsoft",
   "maxResults": 3,
-  "secUserAgent": "CompanyRegistryFilingsAggregator/1.0 contact@example.com",
   "proxyConfiguration": {
     "useApifyProxy": false
   }

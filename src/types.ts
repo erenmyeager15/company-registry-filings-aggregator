@@ -10,6 +10,9 @@ export interface ActorInput {
   maxFilingsPerCompany?: number;
   companiesHouseApiKey?: string;
   secUserAgent?: string;
+  trackChanges?: boolean;
+  monitorName?: string;
+  observationHistoryLimit?: number;
   proxyConfiguration?: Record<string, unknown>;
 }
 
@@ -22,6 +25,27 @@ export interface NormalizedInput {
   maxFilingsPerCompany: number;
   companiesHouseApiKey: string | null;
   secUserAgent: string;
+  trackChanges: boolean;
+  monitorName: string;
+  observationHistoryLimit: number;
+}
+
+export interface CompanyObservation {
+  checkedAt: string;
+  companyName: string;
+  status: string | null;
+  officialWebsiteDomain: string | null;
+  registeredAddress: string | null;
+  businessAddress: string | null;
+  filingAccessions: string[];
+  lastFilingDate: string | null;
+}
+
+export interface CompanyMonitoringState {
+  schemaVersion: 1;
+  firstSeenAt: string;
+  observationCount: number;
+  history: CompanyObservation[];
 }
 
 export interface RegisteredAddress {
@@ -115,6 +139,21 @@ export interface CompanyRecord {
   sourceUrl: string | null;
   attribution: string;
   scrapedAt: string;
+  monitorName?: string;
+  monitoringStatus?: 'baseline' | 'updated' | 'unchanged' | 'partial';
+  changeSeverity?: 'info' | 'low' | 'medium' | 'high';
+  changeSummary?: string;
+  firstSeenAt?: string;
+  previousSeenAt?: string | null;
+  observationCount?: number;
+  previousCompanyName?: string | null;
+  previousStatus?: string | null;
+  previousWebsiteDomain?: string | null;
+  previousLastFilingDate?: string | null;
+  changedFields?: string[];
+  changeSignals?: string[];
+  newFilings?: RecentFiling[];
+  newFilingCount?: number;
 }
 
 export interface CompaniesHouseSearchResponse {
